@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf /c/Users/cmc46/git/PBR_pipeline-master/Brdf/build/dep_assimp-prefix)",
+      "Bash(cmake .. -G \"Visual Studio 17 2022\")",
+      "Bash(cmake --build . --config Debug)"
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+#ifndef __CONTEXT_H__
+#define __CONTEXT_H__
+#include "common.h"
+#include "shader.h"
+#include "compute_program.h"
+#include "buffer.h"
+#include "texture.h"
+#include "mesh.h"
+#include "model.h"
+
+// -------------------------------------------------------
+// GPU 상수 버퍼 - 카메라 파라미터
+// -------------------------------------------------------
+struct GlobalUniforms {
+    glm::vec3 cameraPos;
+    float     fov;
+    glm::vec3 cameraFront;
+    float     aspectRatio;
+    glm::vec3 cameraUp;
+    float     frameCount;
+    glm::vec3 cameraRight;
+    float     _pad;
+};
+
+// -------------------------------------------------------
+// GPU StructuredBuffer - 메시 정보
+// (셰이더의 ShaderMeshInfo와 메모리 레이아웃 일치 필수)
+// -------------------------------------------------------
+struct GpuMeshInfo {
+    uint32_t vertexOffset;   // 전체 버텍스 배열에서 이 메시의 시작 인덱스
+    uint32_t indexOffset;    // 전체 인덱스 배열에서 이 메시의 시작 인덱스
+    uint32_t indexCount;     // 이 메시의 인덱스 수
+    uint32_t materialIndex;  // 재질 배열에서의 인덱스
+};
+
+// -------------------------------------------------------
+// GPU StructuredBuffer - 재질 정보
+// (셰이더의 ShaderMaterial과 메모리 레이아웃 일치 필수)
+// -------------------------------------------------------
+struct GpuMaterial {
+    glm::vec3 albedo;
+    float     roughness;
+    glm::vec3 emissive;
+    float     metallic;
+};
+
+CLASS_PTR(Context)
+class Context {
+public:
+    static ContextUPtr Create(ID3D11Device* device, ID3D11DeviceContext* context);
+
+    void Render(ID3D11DeviceContext* context, uint32_t width, uint32_t height);
+    void OnResize(ID3D11Device* device, uint32_t width, uint32_t height);
+    void Present(ID3D11DeviceContext* context, ID3D11RenderTargetView* rtv);
+    void ProcessMouseMenu(float dx, float dy);
+    void ProcessKeyboard(float deltaTime);
+
+private:
+    Context() {}
+    bool Init(ID3D11Device* device, ID3D11DeviceContext* context);
+
+    // 씬 데이터를 통합 버퍼로 빌드
+    bool BuildSceneBuffers(ID3D11Device* device);
+
+    // --- Compute Resources ---
+    ComputeProgramUPtr m_pathTracerProgram;
+
+    // 출력 텍스처 (LDR 표시용 u1)
+    ComPtr<ID3D11Texture2D>           m_outputTexture;
+    ComPtr<ID3D11UnorderedAccessView> m_outputUAV;
+    ComPtr<ID3D11ShaderResourceView>  m_outputSRV;
+
+    // 누적 버퍼 (HDR 합산용 u0)
+    ComPtr<ID3D11Texture2D>           m_accumTexture;
+    ComPtr<ID3D11UnorderedAccessView> m_accumUAV;
+    ComPtr<ID3D11ShaderResourceView>  m_accumSRV;
+
+    // --- Scene Data ---
+    ModelUPtr m_model; // Assimp 로딩 모델
+
+    // 통합 GPU 버퍼 (모든 메시를 하나로 합친 것)
+    BufferUPtr m_vertexBuffer;   // t0: 전체 버텍스
+    BufferUPtr m_indexBuffer;    // t1: 전체 인덱스
+    BufferUPtr m_meshInfoBuffer; // t2: 메시별 오프셋/카운트
+    BufferUPtr m_materialBuffer; // t3: 메시별 재질
+
+    // SRV 캐싱
+    ComPtr<ID3D11ShaderResourceView> m_vertexSRV;
+    ComPtr<ID3D11ShaderResourceView> m_indexSRV;
+    ComPtr<ID3D11ShaderResourceView> m_meshInfoSRV;
+    ComPtr<ID3D11ShaderResourceView> m_materialSRV;
+
+    uint32_t m_meshCount { 0 };
+
+    // 상수 버퍼
+    BufferUPtr m_globalBuffer;
+
+    // --- Camera State ---
+    glm::vec3 m_cameraPos   { 0.0f, 2.5f, -6.0f };  // 거리 끝에서 +Z 방향으로
+    glm::vec3 m_cameraFront { 0.0f, 0.0f,  1.0f };
+    glm::vec3 m_cameraUp    { 0.0f, 1.0f,  0.0f };
+    float m_yaw   = 90.0f;   // +Z 방향 (거리 안쪽)
+    float m_pitch =  0.0f;
+
+    float m_cameraSpeed      = 5.0f;
+    float m_mouseSensitivity = 0.1f;
+
+    uint32_t m_frameCount = 0;
+};
+#endif
