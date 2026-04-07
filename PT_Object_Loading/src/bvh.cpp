@@ -3,7 +3,7 @@
 #include <cassert>
 
 static constexpr uint32_t LEAF_MAX  = 4;
-static constexpr int      SAH_BINS  = 8;
+static constexpr int      SAH_BINS  = 16;
 
 static float HalfArea(glm::vec3 mn, glm::vec3 mx) {
     glm::vec3 e = glm::max(mx - mn, glm::vec3(0.f));

@@ -126,6 +126,8 @@ bool SceneIntersect(Ray ray, out SurfaceHit hit) {
     // -------------------------------------------------------
     // BVH 순회 (스택 기반 반복, O(log N))
     // -------------------------------------------------------
+    float3 rayInvD = 1.0f / ray.direction; // 레이당 1회만 계산
+
     uint bvhStack[64];
     int  bvhTop = 0;
     bvhStack[bvhTop++] = 0u; // 루트
@@ -134,8 +136,8 @@ bool SceneIntersect(Ray ray, out SurfaceHit hit) {
         ShaderBvhNode node = g_bvhNodes[bvhStack[--bvhTop]];
 
         // AABB 교차 테스트
-        float3 invD = 1.0f / ray.direction;
-        float3 t0s  = (node.aabbMin - ray.origin) * invD;
+        float3 t0s  = (node.aabbMin - ray.origin) * rayInvD;
+        float3 t1s  = (node.aabbMax - ray.origin) * rayInvD;
         float3 t1s  = (node.aabbMax - ray.origin) * invD;
         float3 tMn  = min(t0s, t1s);
         float3 tMx  = max(t0s, t1s);
@@ -204,6 +206,8 @@ bool IsOccluded(float3 origin, float3 target) {
     }
 
     // BVH 섀도우 순회
+    float3 srInvD = 1.0f / sr.direction; // 레이당 1회만 계산
+
     uint sStack[64];
     int  sTop = 0;
     sStack[sTop++] = 0u;
@@ -211,9 +215,8 @@ bool IsOccluded(float3 origin, float3 target) {
     while (sTop > 0) {
         ShaderBvhNode node = g_bvhNodes[sStack[--sTop]];
 
-        float3 invD = 1.0f / sr.direction;
-        float3 t0s  = (node.aabbMin - sr.origin) * invD;
-        float3 t1s  = (node.aabbMax - sr.origin) * invD;
+        float3 t0s  = (node.aabbMin - sr.origin) * srInvD;
+        float3 t1s  = (node.aabbMax - sr.origin) * srInvD;
         float3 tMn  = min(t0s, t1s);
         float3 tMx  = max(t0s, t1s);
         float  tEnter = max(max(tMn.x, tMn.y), tMn.z);

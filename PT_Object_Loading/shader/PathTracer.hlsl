@@ -99,7 +99,7 @@ float3 TracePath(Ray ray, uint2 pixelCoord, uint frameCount) {
     return totalRadiance;
 }
 
-[numthreads(8, 8, 1)]
+[numthreads(16, 16, 1)]
 void CSMain(uint3 dispatchThreadID : SV_DispatchThreadID) {
     uint2 pixelCoord = dispatchThreadID.xy;
     uint screenW, screenH;
