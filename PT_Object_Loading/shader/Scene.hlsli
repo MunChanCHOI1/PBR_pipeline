@@ -138,7 +138,6 @@ bool SceneIntersect(Ray ray, out SurfaceHit hit) {
         // AABB 교차 테스트
         float3 t0s  = (node.aabbMin - ray.origin) * rayInvD;
         float3 t1s  = (node.aabbMax - ray.origin) * rayInvD;
-        float3 t1s  = (node.aabbMax - ray.origin) * invD;
         float3 tMn  = min(t0s, t1s);
         float3 tMx  = max(t0s, t1s);
         float  tEnter = max(max(tMn.x, tMn.y), tMn.z);
