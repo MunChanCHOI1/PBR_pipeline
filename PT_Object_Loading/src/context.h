@@ -7,6 +7,8 @@
 #include "texture.h"
 #include "mesh.h"
 #include "model.h"
+#include "bvh.h"
+#include "scene_desc.h"  // GpuMaterial, GpuMeshInfo, SceneDesc
 
 // -------------------------------------------------------
 // GPU 상수 버퍼 - 카메라 파라미터
@@ -19,29 +21,7 @@ struct GlobalUniforms {
     glm::vec3 cameraUp;
     float     frameCount;
     glm::vec3 cameraRight;
-    float     _pad;
-};
-
-// -------------------------------------------------------
-// GPU StructuredBuffer - 메시 정보
-// (셰이더의 ShaderMeshInfo와 메모리 레이아웃 일치 필수)
-// -------------------------------------------------------
-struct GpuMeshInfo {
-    uint32_t vertexOffset;   // 전체 버텍스 배열에서 이 메시의 시작 인덱스
-    uint32_t indexOffset;    // 전체 인덱스 배열에서 이 메시의 시작 인덱스
-    uint32_t indexCount;     // 이 메시의 인덱스 수
-    uint32_t materialIndex;  // 재질 배열에서의 인덱스
-};
-
-// -------------------------------------------------------
-// GPU StructuredBuffer - 재질 정보
-// (셰이더의 ShaderMaterial과 메모리 레이아웃 일치 필수)
-// -------------------------------------------------------
-struct GpuMaterial {
-    glm::vec3 albedo;
-    float     roughness;
-    glm::vec3 emissive;
-    float     metallic;
+    uint32_t  lightCount;  // 셰이더의 g_lightCount 와 일치
 };
 
 CLASS_PTR(Context)
@@ -83,14 +63,21 @@ private:
     BufferUPtr m_indexBuffer;    // t1: 전체 인덱스
     BufferUPtr m_meshInfoBuffer; // t2: 메시별 오프셋/카운트
     BufferUPtr m_materialBuffer; // t3: 메시별 재질
+    BufferUPtr m_bvhNodeBuffer;  // t4: BVH 노드
+    BufferUPtr m_bvhPrimBuffer;  // t5: BVH 프리미티브
+    BufferUPtr m_lightBuffer;    // t6: NEE 광원
 
     // SRV 캐싱
     ComPtr<ID3D11ShaderResourceView> m_vertexSRV;
     ComPtr<ID3D11ShaderResourceView> m_indexSRV;
     ComPtr<ID3D11ShaderResourceView> m_meshInfoSRV;
     ComPtr<ID3D11ShaderResourceView> m_materialSRV;
+    ComPtr<ID3D11ShaderResourceView> m_bvhNodeSRV;
+    ComPtr<ID3D11ShaderResourceView> m_bvhPrimSRV;
+    ComPtr<ID3D11ShaderResourceView> m_lightSRV;
 
-    uint32_t m_meshCount { 0 };
+    uint32_t m_meshCount  { 0 };
+    uint32_t m_lightCount { 0 };
 
     // 상수 버퍼
     BufferUPtr m_globalBuffer;

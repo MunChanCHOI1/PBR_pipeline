@@ -1,7 +1,4 @@
-#include "Utility.hlsli"
-#include "Scene.hlsli"
-#include "BRDF.hlsli"
-
+// cbuffer를 includes 앞에 선언해야 Scene.hlsli 내부 함수에서 g_lightCount 참조 가능
 cbuffer GlobalUB : register(b0) {
     float3 g_cameraPos;
     float  g_fov;
@@ -10,14 +7,18 @@ cbuffer GlobalUB : register(b0) {
     float3 g_cameraUp;
     float  g_frameCount;
     float3 g_cameraRight;
-    float  g_pad;
+    uint   g_lightCount;  // 동적 광원 수 (C++의 GlobalUniforms::lightCount 와 일치)
 };
+
+#include "Utility.hlsli"
+#include "Scene.hlsli"
+#include "BRDF.hlsli"
 
 RWTexture2D<float4>       g_accum  : register(u0);
 RWTexture2D<unorm float4> g_output : register(u1);
 
-static const int MAX_BOUNCES     = 4;
-static const int SAMPLES_PER_PIXEL = 4; // 더 높은 품질의 초기 렌더링, 노이즈 감소를 위해 픽셀당 샘플 개수 2배 증가.
+static const int MAX_BOUNCES     = 3;
+static const int SAMPLES_PER_PIXEL = 1;
 
 Ray GenerateCameraRay(uint2 pixelCoord, uint2 screenSize, uint frameCount) {
     float2 jitter = GetRandomSamples(pixelCoord, 0, frameCount) - 0.5f;
@@ -56,7 +57,7 @@ float3 TracePath(Ray ray, uint2 pixelCoord, uint frameCount) {
         float3 V = -ray.direction;
 
         // NEE
-        for (int li = 0; li < NUM_LIGHTS; ++li) {
+        for (int li = 0; li < (int)g_lightCount; ++li) {
             float2 xiNEE = GetRandomSamples(pixelCoord, (uint)(bounce * 10 + li + 50), frameCount);
             float3 direct = SampleDirectLight(hit.p, N, V, hit.material, xiNEE, li);
             totalRadiance += clamp(direct * throughput, 0.0f, 50.0f);

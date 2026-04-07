@@ -63,6 +63,8 @@ add_executable(${PROJECT_NAME}
     src/mesh.h             src/mesh.cpp
     src/model.h            src/model.cpp
     src/gltf_loader.h      src/gltf_loader.cpp
+    src/bvh.h              src/bvh.cpp
+    src/scene_desc.h       src/scene_desc.cpp
     ${SHADER_SOURCES}
 )
 

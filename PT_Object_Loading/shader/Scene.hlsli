@@ -27,11 +27,34 @@ struct ShaderMeshInfo {
     uint materialIndex;  // 재질 배열 인덱스
 };
 
-// t0~t3: context.cpp에서 바인딩
+// t0~t5: context.cpp에서 바인딩
 StructuredBuffer<ShaderVertex>   g_vertices  : register(t0);
 StructuredBuffer<uint>           g_indices   : register(t1);
 StructuredBuffer<ShaderMeshInfo> g_meshInfos : register(t2);
 StructuredBuffer<ShaderMaterial> g_materials : register(t3);
+
+struct ShaderBvhNode {
+    float3 aabbMin;
+    uint   leftFirst; // primCount==0: 왼쪽 자식 인덱스, else: 첫 prim 인덱스
+    float3 aabbMax;
+    uint   primCount; // 0=내부 노드, >0=리프
+};
+struct ShaderBvhPrim {
+    uint triOffset; // g_indices 내 삼각형 시작 (triIdx*3)
+    uint meshIdx;
+    uint pad0, pad1;
+};
+StructuredBuffer<ShaderBvhNode> g_bvhNodes : register(t4);
+StructuredBuffer<ShaderBvhPrim> g_bvhPrims : register(t5);
+
+// t6: NEE 광원 (C++의 LightDesc 와 메모리 레이아웃 일치)
+struct ShaderLight {
+    float3 center;
+    float  radius;
+    float3 emission;
+    float  _pad;
+};
+StructuredBuffer<ShaderLight> g_lights : register(t6);
 
 // -------------------------------------------------------
 // SurfaceHit
@@ -48,32 +71,6 @@ struct SurfaceHit {
 void SetFaceNormal(Ray ray, float3 outwardNormal, inout SurfaceHit hit) {
     hit.frontFace = dot(ray.direction, outwardNormal) < 0.0f;
     hit.normal    = hit.frontFace ? outwardNormal : -outwardNormal;
-}
-
-// -------------------------------------------------------
-// NEE 광원 정의
-// -------------------------------------------------------
-struct SphereLight {
-    float3 center;
-    float  radius;
-    float3 emission;
-    float  _pad;
-};
-
-// 가로등 5쌍 → NEE용 구형 광원 5개 (각 쌍의 중심)
-static const int NUM_LIGHTS = 5;
-
-SphereLight GetLight(int idx) {
-    SphereLight l;
-    l.radius   = 0.5f;
-    l.emission = float3(3.5f, 2.7f, 1.3f);
-    l._pad     = 0;
-    if      (idx == 0) l.center = float3(0.0, 3.4,  2.0);
-    else if (idx == 1) l.center = float3(0.0, 3.4,  8.0);
-    else if (idx == 2) l.center = float3(0.0, 3.4, 14.0);
-    else if (idx == 3) l.center = float3(0.0, 3.4, 20.0);
-    else               l.center = float3(0.0, 3.4, 26.0);
-    return l;
 }
 
 // -------------------------------------------------------
@@ -106,18 +103,18 @@ bool SceneIntersect(Ray ray, out SurfaceHit hit) {
         }
     }
 
-    // 광원 구
-    for (int li = 0; li < NUM_LIGHTS; ++li) {
-        SphereLight sl = GetLight(li);
+    // 광원 구 (GPU 버퍼에서 동적으로 읽기)
+    for (int li = 0; li < (int)g_lightCount; ++li) {
+        ShaderLight sl = g_lights[li];
         HitRecord recL;
         if (IntersectSphere(ray, sl.center, sl.radius, recL)) {
             if (recL.t > 0.0001f && recL.t < tClosest) {
-                tClosest              = recL.t;
-                hitAny                = true;
-                hit.t                 = recL.t;
-                hit.p                 = recL.p;
-                hit.normal            = recL.normal;
-                hit.frontFace         = true;
+                tClosest               = recL.t;
+                hitAny                 = true;
+                hit.t                  = recL.t;
+                hit.p                  = recL.p;
+                hit.normal             = recL.normal;
+                hit.frontFace          = true;
                 hit.material.albedo    = float3(1, 1, 1);
                 hit.material.roughness = 1.0f;
                 hit.material.metallic  = 0.0f;
@@ -127,45 +124,61 @@ bool SceneIntersect(Ray ray, out SurfaceHit hit) {
     }
 
     // -------------------------------------------------------
-    // 모델 메시 삼각형 순회 (통합 버퍼 방식)
+    // BVH 순회 (스택 기반 반복, O(log N))
     // -------------------------------------------------------
-    uint meshCount, meshStride;
-    g_meshInfos.GetDimensions(meshCount, meshStride);
+    uint bvhStack[64];
+    int  bvhTop = 0;
+    bvhStack[bvhTop++] = 0u; // 루트
 
-    for (uint m = 0; m < meshCount; ++m) {
-        ShaderMeshInfo info = g_meshInfos[m];
-        if (info.indexCount == 0) continue; // 빈 메시 스킵
+    while (bvhTop > 0) {
+        ShaderBvhNode node = g_bvhNodes[bvhStack[--bvhTop]];
 
-        uint triCount = info.indexCount / 3;
-        for (uint i = 0; i < triCount; ++i) {
-            uint base = info.indexOffset + i * 3;
-            uint i0   = g_indices[base + 0];
-            uint i1   = g_indices[base + 1];
-            uint i2   = g_indices[base + 2];
+        // AABB 교차 테스트
+        float3 invD = 1.0f / ray.direction;
+        float3 t0s  = (node.aabbMin - ray.origin) * invD;
+        float3 t1s  = (node.aabbMax - ray.origin) * invD;
+        float3 tMn  = min(t0s, t1s);
+        float3 tMx  = max(t0s, t1s);
+        float  tEnter = max(max(tMn.x, tMn.y), tMn.z);
+        float  tExit  = min(min(tMx.x, tMx.y), tMx.z);
+        if (tExit < 0.0001f || tEnter > tExit || tEnter > tClosest)
+            continue;
 
-            float3 v0 = g_vertices[i0].position;
-            float3 v1 = g_vertices[i1].position;
-            float3 v2 = g_vertices[i2].position;
+        if (node.primCount > 0u) {
+            // 리프: 삼각형 테스트
+            for (uint p = 0u; p < node.primCount; ++p) {
+                ShaderBvhPrim prim = g_bvhPrims[node.leftFirst + p];
+                uint i0 = g_indices[prim.triOffset + 0];
+                uint i1 = g_indices[prim.triOffset + 1];
+                uint i2 = g_indices[prim.triOffset + 2];
 
-            HitRecord rec;
-            if (IntersectTriangle(ray, v0, v1, v2, rec)) {
-                if (rec.t > 0.0001f && rec.t < tClosest) {
-                    tClosest = rec.t;
-                    hitAny   = true;
-                    hit.t    = rec.t;
-                    hit.p    = rec.p;
-                    hit.bary = rec.bary;
+                HitRecord rec;
+                if (IntersectTriangle(ray,
+                    g_vertices[i0].position,
+                    g_vertices[i1].position,
+                    g_vertices[i2].position, rec))
+                {
+                    if (rec.t > 0.0001f && rec.t < tClosest) {
+                        tClosest = rec.t;
+                        hitAny   = true;
+                        hit.t    = rec.t;
+                        hit.p    = rec.p;
+                        hit.bary = rec.bary;
 
-                    // 바리센트릭 법선 보간
-                    float3 n0 = g_vertices[i0].normal;
-                    float3 n1 = g_vertices[i1].normal;
-                    float3 n2 = g_vertices[i2].normal;
-                    float3 N  = normalize(n0*rec.bary.x + n1*rec.bary.y + n2*rec.bary.z);
-                    SetFaceNormal(ray, N, hit);
-
-                    // 메시별 재질 적용
-                    hit.material = g_materials[info.materialIndex];
+                        float3 N = normalize(
+                            g_vertices[i0].normal * rec.bary.x +
+                            g_vertices[i1].normal * rec.bary.y +
+                            g_vertices[i2].normal * rec.bary.z);
+                        SetFaceNormal(ray, N, hit);
+                        hit.material = g_materials[prim.meshIdx];
+                    }
                 }
+            }
+        } else {
+            // 내부 노드: 자식 push
+            if (bvhTop + 1 < 64) {
+                bvhStack[bvhTop++] = node.leftFirst;
+                bvhStack[bvhTop++] = node.leftFirst + 1u;
             }
         }
     }
@@ -190,21 +203,39 @@ bool IsOccluded(float3 origin, float3 target) {
         if (tp > 0.001f && tp < dist - 0.001f) return true;
     }
 
-    // 모델 메시
-    uint meshCount, meshStride;
-    g_meshInfos.GetDimensions(meshCount, meshStride);
-    for (uint m = 0; m < meshCount; ++m) {
-        ShaderMeshInfo info = g_meshInfos[m];
-        if (info.indexCount == 0) continue;
-        uint triCount = info.indexCount / 3;
-        for (uint i = 0; i < triCount; ++i) {
-            uint base = info.indexOffset + i * 3;
-            HitRecord tr;
-            if (IntersectTriangle(sr,
-                g_vertices[g_indices[base+0]].position,
-                g_vertices[g_indices[base+1]].position,
-                g_vertices[g_indices[base+2]].position, tr))
-                if (tr.t > 0.001f && tr.t < dist - 0.001f) return true;
+    // BVH 섀도우 순회
+    uint sStack[64];
+    int  sTop = 0;
+    sStack[sTop++] = 0u;
+
+    while (sTop > 0) {
+        ShaderBvhNode node = g_bvhNodes[sStack[--sTop]];
+
+        float3 invD = 1.0f / sr.direction;
+        float3 t0s  = (node.aabbMin - sr.origin) * invD;
+        float3 t1s  = (node.aabbMax - sr.origin) * invD;
+        float3 tMn  = min(t0s, t1s);
+        float3 tMx  = max(t0s, t1s);
+        float  tEnter = max(max(tMn.x, tMn.y), tMn.z);
+        float  tExit  = min(min(tMx.x, tMx.y), tMx.z);
+        if (tExit < 0.001f || tEnter > tExit || tEnter > dist - 0.001f)
+            continue;
+
+        if (node.primCount > 0u) {
+            for (uint p = 0u; p < node.primCount; ++p) {
+                ShaderBvhPrim prim = g_bvhPrims[node.leftFirst + p];
+                HitRecord tr;
+                if (IntersectTriangle(sr,
+                    g_vertices[g_indices[prim.triOffset + 0]].position,
+                    g_vertices[g_indices[prim.triOffset + 1]].position,
+                    g_vertices[g_indices[prim.triOffset + 2]].position, tr))
+                    if (tr.t > 0.001f && tr.t < dist - 0.001f) return true;
+            }
+        } else {
+            if (sTop + 1 < 64) {
+                sStack[sTop++] = node.leftFirst;
+                sStack[sTop++] = node.leftFirst + 1u;
+            }
         }
     }
     return false;
@@ -217,7 +248,7 @@ float3 SampleDirectLight(
     float3 hitP, float3 hitN, float3 V,
     ShaderMaterial mat, float2 xi, int lightIdx)
 {
-    SphereLight light = GetLight(lightIdx);
+    ShaderLight light = g_lights[lightIdx];
     if (light.radius <= 0.0f) return float3(0, 0, 0);
 
     float  phi  = 2.0f * 3.14159265f * xi.x;
