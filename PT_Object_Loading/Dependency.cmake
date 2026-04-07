@@ -12,8 +12,11 @@ ExternalProject_Add(
     UPDATE_DISCONNECTED 1  # [추가] 이미 다운로드된 경우 git fetch 스킵
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${DEP_INSTALL_DIR}
+        -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
         -DSPDLOG_BUILD_EXAMPLE=OFF
         -DSPDLOG_BUILD_TESTS=OFF
+    BUILD_COMMAND   ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+    INSTALL_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release --target install
 )
 set(DEP_LIST ${DEP_LIST} dep_spdlog)
 
@@ -60,8 +63,7 @@ ExternalProject_Add(
     UPDATE_DISCONNECTED 1  # [추가]
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${DEP_INSTALL_DIR}
-        -DCMAKE_BUILD_TYPE=Debug
-        -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebugDLL
+        -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
         -DASSIMP_BUILD_TESTS=OFF
         -DASSIMP_BUILD_ASSIMP_TOOLS=OFF
         -DASSIMP_BUILD_SAMPLES=OFF
@@ -73,9 +75,11 @@ ExternalProject_Add(
         -DASSIMP_INJECT_DEBUG_POSTFIX=OFF
         -DBUILD_SHARED_LIBS=OFF
         -DASSIMP_WARNINGS_AS_ERRORS=OFF
-        -DCMAKE_PDB_OUTPUT_DIRECTORY_DEBUG=${PROJECT_BINARY_DIR}/dep_assimp-prefix/src/dep_assimp-build/code
+    # VS 멀티-config: 외부 빌드 구성 무시, Release 고정
+    BUILD_COMMAND   ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+    INSTALL_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release --target install
 )
-set(DEP_LIBS ${DEP_LIBS} assimp-vc143-mt zlibstaticd)
+set(DEP_LIBS ${DEP_LIBS} assimp-vc143-mt zlibstatic)
 set(DEP_LIST ${DEP_LIST} dep_assimp)
 
 # 5. tinygltf (헤더 전용)

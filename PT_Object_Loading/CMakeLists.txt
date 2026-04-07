@@ -1,11 +1,14 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
 cmake_policy(SET CMP0077 NEW)
+cmake_policy(SET CMP0091 NEW)  # CMAKE_MSVC_RUNTIME_LIBRARY 활성화
 
 set(PROJECT_NAME PT_Object_Loading)
 project(${PROJECT_NAME})
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebugDLL")
+# assimp가 Release(/MD, _ITERATOR_DEBUG_LEVEL=0)로 사전 빌드되어 있으므로
+# Debug/Release 모두 동일한 런타임 사용
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
 # 1. 경로 설정 (제너레이터 표현식 대신 빌드 디렉토리 변수 사용)
 set(SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shader")
@@ -83,6 +86,7 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
     WINDOW_NAME=\"PT_Object_Loading\"
     WINDOW_WIDTH=960
     WINDOW_HEIGHT=540
+    _ITERATOR_DEBUG_LEVEL=0  # assimp Release 빌드와 일치
 )
 
 set(DX_LIBS d3d11.lib dxgi.lib d3dcompiler.lib)
